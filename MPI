@@ -1,0 +1,106 @@
+1.Wszystkie procesy o identyfikatorze różnym od 0 przygotowują komunikat i wysyłają do procesu 0, proces 0 odbiera i
+wyświetla wszystkie odebrane komunikaty.
+
+#include <stdio.h>
+#include <string.h>  
+#include <mpi.h>    
+
+const int MAX_STRING = 100;
+
+int main(void) {
+   char       greeting[MAX_STRING];  
+   int        comm_sz;               
+   int        my_rank;
+  
+   MPI_Init(NULL, NULL); 
+
+   MPI_Comm_size(MPI_COMM_WORLD, &comm_sz); 
+
+   MPI_Comm_rank(MPI_COMM_WORLD, &my_rank); 
+
+   if (my_rank != 0) { 
+      sprintf(greeting, "Pozdrowienia od procesu %d z %d!", 
+            my_rank, comm_sz);
+      MPI_Send(greeting, strlen(greeting)+1, MPI_CHAR, 0, 0,
+            MPI_COMM_WORLD); 
+   } else {  
+      int q;
+      printf("Pozdrowienia od procesu %d z %d!\n", my_rank, comm_sz);
+      for (q = 1; q < comm_sz; q++) {
+         MPI_Recv(greeting, MAX_STRING, MPI_CHAR, q,
+            0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+         printf("%s\n", greeting);
+      } 
+   }
+   MPI_Finalize(); 
+
+   return 0;
+}  
+2.komunikacja synchroniczna punkt-punkt w architekturze pierścienia
+#include <stdio.h>
+#include <mpi.h>
+
+int main(int argc, char *argv[]) {
+    int rank, num_procs, znacznik;
+
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
+
+    if (rank != 0) {
+        MPI_Recv(&znacznik, 1, MPI_INT, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        printf("Proces %d otrzymal znacznik %d z procesu %d\n", rank, znacznik, rank - 1);
+    } else {
+        znacznik = -1;
+    }
+
+    MPI_Send(&znacznik, 1, MPI_INT, (rank + 1) % num_procs, 0, MPI_COMM_WORLD);
+
+    if (rank == 0) {
+        MPI_Recv(&znacznik, 1, MPI_INT, num_procs - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        printf("Proces %d otrzymal %d od procesu %d\n", rank, znacznik, num_procs - 1);
+    }
+
+    MPI_Finalize();
+    return 0;
+}
+
+
+3.Asynchroniczna komunikacja w pierścieniu procesów
+#include <stdio.h>
+#include <mpi.h>
+
+int main(int argc, char *argv[]) {
+    int np, my_rank, left_neighbor, right_neighbor, data_received;
+    int tag = 0; // Tag dla komunikatów
+
+    MPI_Init(&argc, &argv);
+    MPI_Comm_size(MPI_COMM_WORLD, &np);
+    MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+
+    left_neighbor = (my_rank - 1 + np) % np;
+    right_neighbor = (my_rank + 1) % np;
+
+    MPI_Status statSend, statRecv;
+    MPI_Request reqSend, reqRecv;
+
+    // Rozpoczęcie asynchronicznego odbioru danych od sąsiada z prawej strony
+    MPI_Irecv(&data_received, 1, MPI_INT, right_neighbor, tag, MPI_COMM_WORLD, &reqRecv);
+
+    // Wysłanie danych do sąsiada z lewej strony
+    MPI_Isend(&my_rank, 1, MPI_INT, left_neighbor, tag, MPI_COMM_WORLD, &reqSend);
+
+    // Proces kontynuuje działanie...
+
+    // Oczekiwanie na zakończenie wysłania danych
+    MPI_Wait(&reqSend, &statSend);
+
+    // Oczekiwanie na zakończenie odbioru danych
+    MPI_Wait(&reqRecv, &statRecv);
+
+    // Komunikacja została zakończona, możemy kontynuować
+    printf("Process %d received from right neighbor: %d\n", my_rank, data_received);
+
+    MPI_Finalize();
+    return 0;
+}
